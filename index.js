@@ -66,7 +66,6 @@ let wallpaperStyleDispose = null;
 let wallpaperObserver = null;
 let wallpaperObserverTimer = null;
 let headerSyncTimer = null;
-let headerScrollTargets = [];
 let headerSyncHandler = null;
 let wallpaperImgNaturalW = 0;
 let wallpaperImgNaturalH = 0;
@@ -602,7 +601,6 @@ body .comment-main-tabs,
 body .search-pinned-tabs {
   background: transparent !important;
   background-color: transparent !important;
-  overflow: hidden !important;
 }
 body .song-list-sticky::before,
 body .sliver-header-root::before,
@@ -621,6 +619,7 @@ body .search-pinned-tabs::before {
   width: 100% !important;
   height: 100% !important;
   transform: none !important;
+  overflow: hidden !important;
   background-image:
     linear-gradient(rgba(0,0,0,${wallpaperDim}), rgba(0,0,0,${wallpaperDim})),
     url("${url}") !important;
@@ -769,8 +768,6 @@ body .search-pinned-tabs::before {
       syncHeaderBg();
     });
   };
-
-  // MutationObserver: intercept Vue re-renders that restore backgrounds
   const appEl = document.getElementById("app");
   if (appEl) {
     wallpaperObserver = new MutationObserver(() => {
@@ -788,26 +785,14 @@ body .search-pinned-tabs::before {
     });
   }
 
-  // 监听滚动：表头在滚动容器内，位置随滚动变化
-  headerSyncHandler = scheduleHeaderSync;
-  const bindHeaderScrollListeners = () => {
-    // 解绑旧的
-    for (const t of headerScrollTargets) {
-      t.removeEventListener("scroll", headerSyncHandler);
-    }
-    headerScrollTargets = [];
-    // 所有滚动容器（PageScrollContainer 内的 scrollbar-wrap）
-    const scrollEls = document.querySelectorAll("[data-echo-scroll-container], .scrollbar-wrap, .page-scroll-area");
-    for (const el of scrollEls) {
-      el.addEventListener("scroll", headerSyncHandler, { passive: true });
-      headerScrollTargets.push(el);
-    }
-    // 主窗口 resize
-    window.addEventListener("resize", headerSyncHandler);
-  };
-  bindHeaderScrollListeners();
+  // 监听滚动：用捕获阶段全局 scroll 监听，可捕获任何内部滚动容器的 scroll 事件，
+  // 无需关心路由切换/KeepAlive 后滚动容器是否变化。
+  // 注意：滚动时直接同步（不节流），否则 rAF 延迟一帧导致蒙版慢一拍。
+  headerSyncHandler = syncHeaderBg;
+  window.addEventListener("scroll", headerSyncHandler, { passive: true, capture: true });
+  window.addEventListener("resize", headerSyncHandler);
   // 初次同步
-  scheduleHeaderSync();
+  syncHeaderBg();
 };
 
 const removeWallpaper = () => {
@@ -821,10 +806,7 @@ const removeWallpaper = () => {
     cancelAnimationFrame(headerSyncTimer);
     headerSyncTimer = null;
   }
-  for (const t of headerScrollTargets) {
-    t.removeEventListener("scroll", headerSyncHandler);
-  }
-  headerScrollTargets = [];
+  window.removeEventListener("scroll", headerSyncHandler, { capture: true });
   window.removeEventListener("resize", headerSyncHandler);
   headerSyncHandler = null;
   wallpaperImgNaturalW = 0;
