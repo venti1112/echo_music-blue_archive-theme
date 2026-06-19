@@ -23,7 +23,7 @@ const WALLPAPERS = [
   { id: "pv-4th", label: "PV 4th", file: "pv-4th.png" },
   { id: "shiroko-bike", label: "白子骑行", file: "shiroko-bike.jpg" },
   { id: "shiroko-bike-2", label: "白子骑行 2", file: "shiroko-bike-2.jpg" },
-  { id: "yukkai-and-nora", label: "优香与野乃", file: "yukkai-and-nora.jpg" },
+  { id: "yukkai-and-nora", label: "优香与诺亚", file: "yukkai-and-nora.jpg" },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -65,10 +65,9 @@ let sparkContainer = null;
 let wallpaperStyleDispose = null;
 let wallpaperObserver = null;
 let wallpaperObserverTimer = null;
-let headerSyncTimer = null;
-let headerSyncHandler = null;
-let wallpaperImgNaturalW = 0;
-let wallpaperImgNaturalH = 0;
+let headerRafId = 0;
+let wallpaperImgW = 0;
+let wallpaperImgH = 0;
 let fontStyleDispose = null;
 let fontGlobalDispose = null;
 let surfaceDispose = null;
@@ -396,14 +395,11 @@ const applyWallpaper = async () => {
   const url = await getWallpaperFileUrl(state.settings.wallpaperId);
   if (!url) return;
 
-  // 加载壁纸图获取原始尺寸，用于表头蒙版 cover 精确对齐
+  // 加载壁纸图原始尺寸用于 cover 精确对齐
   const img = new Image();
   img.onload = () => {
-    wallpaperImgNaturalW = img.naturalWidth;
-    wallpaperImgNaturalH = img.naturalHeight;
-    if (headerSyncHandler) {
-      headerSyncHandler();
-    }
+    wallpaperImgW = img.naturalWidth;
+    wallpaperImgH = img.naturalHeight;
   };
   img.src = url;
 
@@ -602,6 +598,8 @@ body .search-pinned-tabs {
   background: transparent !important;
   background-color: transparent !important;
 }
+/* 表头 ::before 用 absolute 画壁纸，由 JS 每帧 rAF 同步 background-position
+   与视口 body::before 对齐。rAF 在绘制前执行，零滞后。 */
 body .song-list-sticky::before,
 body .sliver-header-root::before,
 body .explore-header::before,
@@ -619,14 +617,12 @@ body .search-pinned-tabs::before {
   width: 100% !important;
   height: 100% !important;
   transform: none !important;
-  overflow: hidden !important;
   background-image:
     linear-gradient(rgba(0,0,0,${wallpaperDim}), rgba(0,0,0,${wallpaperDim})),
     url("${url}") !important;
   background-size: var(--ba-hdr-size, 100vw 100vh), var(--ba-hdr-size, 100vw 100vh) !important;
   background-repeat: no-repeat, no-repeat !important;
   background-position: var(--ba-hdr-pos, center center), var(--ba-hdr-pos, center center) !important;
-  ${blurPx !== "none" ? `filter: ${blurPx} !important;` : ""}
   z-index: -1 !important;
   pointer-events: none !important;
 }
@@ -724,58 +720,48 @@ body .search-pinned-tabs::before {
   };
   stripBackgrounds();
 
-  // ---- 吸顶表头壁纸对齐：JS 实时同步 background-position ----
-  // 表头 ::before 用 absolute 画壁纸，但参考系是表头自身（非视口），
-  // 需根据表头相对视口的位置计算 background-position 偏移，
-  // 使表头内的壁纸与 body::before 视口壁纸像素对齐，避免错位。
+  // ---- 吸顶表头壁纸对齐：rAF 循环每帧同步 ----
+  // rAF 在每帧绘制前执行，读到的 getBoundingClientRect 是当帧最新位置，
+  // 写入 CSS 变量后当帧绘制生效 → 零滞后。比 scroll 事件（绘制后派发）更早。
   const HEADER_SELECTORS = [
     ".song-list-sticky", ".sliver-header-root", ".explore-header",
     ".rank-toolbar", ".new-song-toolbar", ".search-song-toolbar",
     ".comment-main-tabs", ".search-pinned-tabs",
   ];
   const syncHeaderBg = () => {
-    if (!state.settings.wallpaperEnabled || !state.settings.frostedCards) return;
-    if (!wallpaperImgNaturalW || !wallpaperImgNaturalH) return;
-    // body::before 用 position:fixed; inset:0; background-size:cover; background-position:center
-    // 其容器尺寸 = 视口（不含滚动条）= document.documentElement.clientWidth/clientHeight
-    const cw = document.documentElement.clientWidth;
-    const ch = document.documentElement.clientHeight;
-    // cover 缩放：取较大比例，确保覆盖
-    const scale = Math.max(cw / wallpaperImgNaturalW, ch / wallpaperImgNaturalH);
-    const drawnW = wallpaperImgNaturalW * scale;
-    const drawnH = wallpaperImgNaturalH * scale;
-    // center 居中后，图片左上角相对视口的偏移
-    const bgOffsetX = (cw - drawnW) / 2;
-    const bgOffsetY = (ch - drawnH) / 2;
-    for (const sel of HEADER_SELECTORS) {
-      for (const el of document.querySelectorAll(sel)) {
-        const rect = el.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) continue;
-        // 表头 ::before 容器 = 表头自身，要让其壁纸与视口壁纸对齐：
-        // background-size 用 cover 后的实际绘制尺寸（固定 px），
-        // background-position = 视口内图片左上角偏移 - 表头相对视口偏移
-        const posX = bgOffsetX - rect.left;
-        const posY = bgOffsetY - rect.top;
-        el.style.setProperty("--ba-hdr-pos", `${posX}px ${posY}px`);
-        el.style.setProperty("--ba-hdr-size", `${drawnW}px ${drawnH}px`);
+    if (!state.settings.wallpaperEnabled || !state.settings.frostedCards) {
+      headerRafId = requestAnimationFrame(syncHeaderBg);
+      return;
+    }
+    if (wallpaperImgW && wallpaperImgH) {
+      const cw = document.documentElement.clientWidth;
+      const ch = document.documentElement.clientHeight;
+      const scale = Math.max(cw / wallpaperImgW, ch / wallpaperImgH);
+      const drawnW = wallpaperImgW * scale;
+      const drawnH = wallpaperImgH * scale;
+      const bgOffsetX = (cw - drawnW) / 2;
+      const bgOffsetY = (ch - drawnH) / 2;
+      for (const sel of HEADER_SELECTORS) {
+        for (const el of document.querySelectorAll(sel)) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) continue;
+          const posX = bgOffsetX - rect.left;
+          const posY = bgOffsetY - rect.top;
+          el.style.setProperty("--ba-hdr-pos", `${posX}px ${posY}px`);
+          el.style.setProperty("--ba-hdr-size", `${drawnW}px ${drawnH}px`);
+        }
       }
     }
+    headerRafId = requestAnimationFrame(syncHeaderBg);
   };
-  const scheduleHeaderSync = () => {
-    if (headerSyncTimer) return;
-    headerSyncTimer = requestAnimationFrame(() => {
-      headerSyncTimer = null;
-      syncHeaderBg();
-    });
-  };
+  headerRafId = requestAnimationFrame(syncHeaderBg);
+
+  // MutationObserver: intercept Vue re-renders that restore backgrounds
   const appEl = document.getElementById("app");
   if (appEl) {
     wallpaperObserver = new MutationObserver(() => {
       if (wallpaperObserverTimer) clearTimeout(wallpaperObserverTimer);
-      wallpaperObserverTimer = setTimeout(() => {
-        stripBackgrounds();
-        scheduleHeaderSync();
-      }, 16);
+      wallpaperObserverTimer = setTimeout(stripBackgrounds, 16);
     });
     wallpaperObserver.observe(appEl, {
       childList: true,
@@ -784,15 +770,6 @@ body .search-pinned-tabs::before {
       attributeFilter: ["style", "class"],
     });
   }
-
-  // 监听滚动：用捕获阶段全局 scroll 监听，可捕获任何内部滚动容器的 scroll 事件，
-  // 无需关心路由切换/KeepAlive 后滚动容器是否变化。
-  // 注意：滚动时直接同步（不节流），否则 rAF 延迟一帧导致蒙版慢一拍。
-  headerSyncHandler = syncHeaderBg;
-  window.addEventListener("scroll", headerSyncHandler, { passive: true, capture: true });
-  window.addEventListener("resize", headerSyncHandler);
-  // 初次同步
-  syncHeaderBg();
 };
 
 const removeWallpaper = () => {
@@ -802,15 +779,12 @@ const removeWallpaper = () => {
     clearTimeout(wallpaperObserverTimer);
     wallpaperObserverTimer = null;
   }
-  if (headerSyncTimer) {
-    cancelAnimationFrame(headerSyncTimer);
-    headerSyncTimer = null;
+  if (headerRafId) {
+    cancelAnimationFrame(headerRafId);
+    headerRafId = 0;
   }
-  window.removeEventListener("scroll", headerSyncHandler, { capture: true });
-  window.removeEventListener("resize", headerSyncHandler);
-  headerSyncHandler = null;
-  wallpaperImgNaturalW = 0;
-  wallpaperImgNaturalH = 0;
+  wallpaperImgW = 0;
+  wallpaperImgH = 0;
   wallpaperStyleDispose?.();
   wallpaperStyleDispose = null;
   surfaceDispose?.();
