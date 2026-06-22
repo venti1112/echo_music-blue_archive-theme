@@ -52,7 +52,18 @@ const DEFAULT_SETTINGS = {
 
 const COLOR_PRESETS = [
   { label: "蔚蓝", value: "45,175,255" },
+  { label: "樱花", value: "255,182,193" },
+  { label: "薄荷", value: "152,255,152" },
+  { label: "薰衣草", value: "180,130,255" },
+  { label: "夕阳", value: "255,150,100" },
+  { label: "纯白", value: "255,255,255" },
 ];
+
+const rgbToHex = (r, g, b) => `#${[r, g, b].map(c => Math.round(c).toString(16).padStart(2, "0")).join("")}`;
+const hexToRgb = (hex) => {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m ? `${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)}` : null;
+};
 
 /* ------------------------------------------------------------------ */
 /*  State                                                             */
@@ -125,6 +136,7 @@ const normalizeSettings = (v = {}) => {
 /* ================================================================== */
 /*                                                                    */
 /*   PART 1 — Click Spark Effect (BASpark from vue-ba-spark)         */
+/*   https://npmx.dev/package/vue-ba-spark                             */
 /*                                                                    */
 /* ================================================================== */
 
@@ -992,6 +1004,12 @@ const SETTINGS_CSS = `
 .echo-ba-color-btn:hover { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--control-border)); }
 .echo-ba-color-btn.is-active { border-color: color-mix(in srgb, var(--color-primary) 50%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
 .echo-ba-color-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+.echo-ba-color-pick { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--control-border); border-radius: 999px; background: var(--control-muted-bg); color: var(--color-text-main); font-size: 11px; font-weight: 600; cursor: pointer; position: relative; }
+.echo-ba-color-pick:hover { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--control-border)); }
+.echo-ba-color-pick input[type="color"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.echo-ba-spark-credit { font-size: 10px; color: color-mix(in srgb, var(--color-text-main) 45%, transparent); text-align: center; }
+.echo-ba-spark-credit a { color: var(--color-primary); text-decoration: none; }
+.echo-ba-spark-credit a:hover { text-decoration: underline; }
 .echo-ba-wp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
 .echo-ba-wp-card { position: relative; border-radius: 10px; overflow: hidden; border: 2px solid transparent; cursor: pointer; aspect-ratio: 16/10; background: var(--control-muted-bg); transition: border-color 0.15s; }
 .echo-ba-wp-card:hover { border-color: color-mix(in srgb, var(--color-primary) 40%, transparent); }
@@ -1103,6 +1121,19 @@ const createSettingsComponent = (ctx) => {
                   type: "button",
                   onClick: () => updateSettings({ sparkColor: p.value }),
                 }, [h("span", { class: "echo-ba-color-dot", style: { background: `rgb(${p.value})` } }), p.label]),
+              ).concat(
+                h("label", { class: "echo-ba-color-pick", title: "自定义颜色" }, [
+                  h("input", {
+                    type: "color",
+                    value: rgbToHex(...state.settings.sparkColor.split(",").map(Number)),
+                    onInput: (e) => {
+                      const rgb = hexToRgb(e.target.value);
+                      if (rgb) updateSettings({ sparkColor: rgb });
+                    },
+                  }),
+                  h("span", { class: "echo-ba-color-dot", style: { background: `rgb(${state.settings.sparkColor})` } }),
+                  "自定义",
+                ]),
               ),
             ),
             { wide: true },
@@ -1112,6 +1143,11 @@ const createSettingsComponent = (ctx) => {
           field("动画速度", null, sl("sparkSpeed", 0.2, 3, 0.1, "x")),
           field("拖尾长度", null, sl("sparkMaxTrail", 1, 64, 1, "")),
           field("始终显示拖尾", "无需按住鼠标", sw("sparkAlwaysTrail"), { sw: true }),
+          h("div", { class: "echo-ba-spark-credit" }, [
+            "粒子特效基于 ",
+            h("a", { href: "https://npmx.dev/package/vue-ba-spark", target: "_blank", rel: "noopener" }, "vue-ba-spark"),
+            " — 感谢原作者",
+          ]),
         ]);
 
       const renderWallpaperSection = () =>
