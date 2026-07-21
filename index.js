@@ -43,11 +43,17 @@ const DEFAULT_SETTINGS = {
   sidebarBlur: 14,
   playerBlur: 14,
   frostedCards: true,
-  cardBlur: 12,
+  cardBlur: 0,
+  popupFrosted: true,
+  popupBlur: 12,
   customWallpaperData: "",
   customWallpaperName: "",
   surfaceOpacity: 0.78,
   fontEnabled: true,
+  fontMode: "blueaka",
+  systemFontFamily: "",
+  customFontPath: "",
+  customFontName: "",
 };
 
 const COLOR_PRESETS = [
@@ -119,7 +125,16 @@ const normalizeSettings = (v = {}) => {
       typeof i.replaceLyricBg === "boolean" ? i.replaceLyricBg : DEFAULT_SETTINGS.replaceLyricBg,
     frostedCards:
       typeof i.frostedCards === "boolean" ? i.frostedCards : DEFAULT_SETTINGS.frostedCards,
-    cardBlur: num(i.cardBlur, 0, 64, DEFAULT_SETTINGS.cardBlur),
+    // 旧版本(无 popup 字段)只有统一的 frostedCards/cardBlur：模糊值迁移给弹窗组，
+    // 卡片组按新默认重置为透明不模糊(cardBlur: 0)
+    cardBlur: ("popupBlur" in i || "popupFrosted" in i)
+      ? num(i.cardBlur, 0, 64, DEFAULT_SETTINGS.cardBlur)
+      : DEFAULT_SETTINGS.cardBlur,
+    popupFrosted:
+      typeof i.popupFrosted === "boolean"
+        ? i.popupFrosted
+        : typeof i.frostedCards === "boolean" ? i.frostedCards : DEFAULT_SETTINGS.popupFrosted,
+    popupBlur: num(i.popupBlur, 0, 64, num(i.cardBlur, 0, 64, DEFAULT_SETTINGS.popupBlur)),
     customWallpaperData:
       typeof i.customWallpaperData === "string" ? i.customWallpaperData : DEFAULT_SETTINGS.customWallpaperData,
     customWallpaperName:
@@ -130,6 +145,15 @@ const normalizeSettings = (v = {}) => {
     playerBlur: num(i.playerBlur, 0, 64, DEFAULT_SETTINGS.playerBlur),
     surfaceOpacity: num(i.surfaceOpacity, 0.3, 1, DEFAULT_SETTINGS.surfaceOpacity),
     fontEnabled: typeof i.fontEnabled === "boolean" ? i.fontEnabled : DEFAULT_SETTINGS.fontEnabled,
+    fontMode: ["blueaka", "system", "custom"].includes(i.fontMode)
+      ? i.fontMode
+      : DEFAULT_SETTINGS.fontMode,
+    systemFontFamily:
+      typeof i.systemFontFamily === "string" ? i.systemFontFamily : DEFAULT_SETTINGS.systemFontFamily,
+    customFontPath:
+      typeof i.customFontPath === "string" ? i.customFontPath : DEFAULT_SETTINGS.customFontPath,
+    customFontName:
+      typeof i.customFontName === "string" ? i.customFontName : DEFAULT_SETTINGS.customFontName,
   };
 };
 
@@ -391,6 +415,36 @@ const getWallpaperFileUrl = async (wallpaperId) => {
   return null;
 };
 
+/* ------------------------------------------------------------------ */
+/*  磨砂元素分组                                                       */
+/*  - 卡片：页面内的卡片、面板、列表项（frostedCards / cardBlur）      */
+/*  - 弹窗：对话框、抽屉(播放列表)、右键菜单、Toast、搜索建议等浮层    */
+/*    （popupFrosted / popupBlur）                                     */
+/*  - 表头：吸顶工具栏，本体透明由 ::before 画壁纸，跟随"卡片"开关     */
+/* ------------------------------------------------------------------ */
+
+const FROSTED_CARD_SELECTORS = [
+  ".home-feature-card", ".style-recommend-panel", ".settings-card", ".cloud-info-card", ".plugin-card",
+  ".login-panel-card", ".route-error-card", ".error-shell",
+  ".rec-playlist-item", ".plugin-settings-section", ".plugin-management-page",
+  ".card-container", ".profile-archive-card", ".radio-card",
+  ".fm-play-sticky", ".fm-panel", ".fm-now-panel",
+];
+
+const FROSTED_POPUP_SELECTORS = [
+  ".dialog-content", ".drawer-panel", ".song-context-menu", ".toast-card",
+  ".search-suggestions-panel", ".tb-suggestions",
+  ".add-playlist-item", ".playlist-picker-item",
+];
+
+const FROSTED_HEADER_SELECTORS = [
+  ".song-list-sticky", ".sliver-header-root", ".explore-header",
+  ".rank-toolbar", ".new-song-toolbar", ".search-song-toolbar",
+  ".comment-main-tabs", ".search-pinned-tabs",
+];
+
+const FROSTED_BG_VALUE = "color-mix(in srgb, var(--surface-card-base, #fff) 12%, transparent)";
+
 const applyWallpaper = async () => {
   wallpaperStyleDispose?.();
   wallpaperStyleDispose = null;
@@ -563,63 +617,21 @@ body .fm-panel {
   background-color: transparent !important;
 }
 ` + (state.settings.frostedCards ? `
-body .home-feature-card,
-body .settings-card,
-body .cloud-info-card,
-body .plugin-card,
-body .login-panel-card,
-body .route-error-card,
-body .error-shell,
-body .explore-header,
-body .rank-toolbar,
-body .new-song-toolbar,
-body .search-song-toolbar,
-body .song-list-sticky,
-body .comment-main-tabs,
-body .sliver-header-root,
-body .search-pinned-tabs,
-body .search-suggestions-panel,
-body .tb-suggestions,
-body .rec-playlist-item,
-body .add-playlist-item,
-body .playlist-picker-item,
-body .plugin-settings-section,
-body .plugin-management-page,
-body .song-context-menu,
-body .drawer-panel,
-body .dialog-content,
-body .toast-card,
-body .card-container,
-body .profile-archive-card,
-body .radio-card,
-body .fm-play-sticky,
-body .fm-panel {
-  background: color-mix(in srgb, var(--surface-card-base, #fff) 12%, transparent) !important;
+${FROSTED_CARD_SELECTORS.map((s) => `body ${s}`).join(",\n")} {
+  background: ${FROSTED_BG_VALUE} !important;${state.settings.cardBlur > 0 ? `
+  backdrop-filter: blur(${state.settings.cardBlur}px) !important;
+  -webkit-backdrop-filter: blur(${state.settings.cardBlur}px) !important;` : ''}
 }
 /* 吸顶表头/工具栏：本体透明；::before 用 absolute 画壁纸，由 JS 实时同步
    background-position 使其与视口壁纸(body::before)像素对齐，避免错位，
    同时遮挡滚到背后的列表行。overflow:hidden 裁剪超出表头的部分。 */
-body .song-list-sticky,
-body .sliver-header-root,
-body .explore-header,
-body .rank-toolbar,
-body .new-song-toolbar,
-body .search-song-toolbar,
-body .comment-main-tabs,
-body .search-pinned-tabs {
+${FROSTED_HEADER_SELECTORS.map((s) => `body ${s}`).join(",\n")} {
   background: transparent !important;
   background-color: transparent !important;
 }
 /* 表头 ::before 用 absolute 画壁纸，由 JS 每帧 rAF 同步 background-position
    与视口 body::before 对齐。rAF 在绘制前执行，零滞后。 */
-body .song-list-sticky::before,
-body .sliver-header-root::before,
-body .explore-header::before,
-body .rank-toolbar::before,
-body .new-song-toolbar::before,
-body .search-song-toolbar::before,
-body .comment-main-tabs::before,
-body .search-pinned-tabs::before {
+${FROSTED_HEADER_SELECTORS.map((s) => `body ${s}::before`).join(",\n")} {
   content: "" !important;
   position: absolute !important;
   top: 0 !important;
@@ -638,12 +650,31 @@ body .search-pinned-tabs::before {
   z-index: -1 !important;
   pointer-events: none !important;
 }
-` : '') + `
-.ba-frosted {
+` : '') + (state.settings.popupFrosted ? `
+${FROSTED_POPUP_SELECTORS.map((s) => `body ${s}`).join(",\n")} {
+  background: ${FROSTED_BG_VALUE} !important;${state.settings.popupBlur > 0 ? `
+  backdrop-filter: blur(${state.settings.popupBlur}px) !important;
+  -webkit-backdrop-filter: blur(${state.settings.popupBlur}px) !important;` : ''}
+}
+/* 搜索框聚焦态：宿主聚焦时会切到近不透明的 --control-bg，改回磨砂样式，
+   与聚焦时弹出的建议面板(tb-suggestions / search-suggestions-panel)观感一致 */
+body .tb-search-input-wrap:focus-within,
+body .search-input-wrap:focus-within {
+  background: ${FROSTED_BG_VALUE} !important;${state.settings.popupBlur > 0 ? `
+  backdrop-filter: blur(${state.settings.popupBlur}px) !important;
+  -webkit-backdrop-filter: blur(${state.settings.popupBlur}px) !important;` : ''}
+}
+` : '') + (state.settings.cardBlur > 0 ? `
+.ba-frosted-card {
   backdrop-filter: blur(${state.settings.cardBlur}px) !important;
   -webkit-backdrop-filter: blur(${state.settings.cardBlur}px) !important;
 }
-`;
+` : '') + (state.settings.popupBlur > 0 ? `
+.ba-frosted-popup {
+  backdrop-filter: blur(${state.settings.popupBlur}px) !important;
+  -webkit-backdrop-filter: blur(${state.settings.popupBlur}px) !important;
+}
+` : '');
 
   wallpaperStyleDispose = runtimeCtx.css.inject(css, { id: "ba-wallpaper" });
 
@@ -691,34 +722,39 @@ body .search-pinned-tabs::before {
       }
     }
   };
-  const frostedCardSelectors = [
-    ".home-feature-card", ".settings-card", ".cloud-info-card", ".plugin-card",
-    ".login-panel-card", ".route-error-card", ".error-shell",
-    ".search-suggestions-panel", ".tb-suggestions",
-    ".rec-playlist-item", ".add-playlist-item", ".playlist-picker-item",
-    ".plugin-settings-section", ".plugin-management-page",
-    ".song-context-menu", ".drawer-panel", ".dialog-content",
-    ".toast-card", ".card-container",
-    ".profile-archive-card", ".radio-card", ".fm-play-sticky",
-    ".fm-panel", ".fm-now-panel",
-  ];
-  const applyFrostedCards = () => {
-    const blurVal = `blur(${state.settings.cardBlur}px)`;
-    for (const sel of frostedCardSelectors) {
+  // 卡片与弹窗磨砂分组应用：每组独立开关和模糊度
+  const applyFrostedGroup = (selectors, enabled, blur, className) => {
+    const blurVal = `blur(${blur}px)`;
+    for (const sel of selectors) {
       for (const el of document.querySelectorAll(sel)) {
-        if (state.settings.frostedCards) {
-          if (!el.classList.contains("ba-frosted")) el.classList.add("ba-frosted");
-          el.style.setProperty("background", "color-mix(in srgb, var(--surface-card-base, #fff) 12%, transparent)", "important");
-          el.style.setProperty("backdrop-filter", blurVal, "important");
-          el.style.setProperty("-webkit-backdrop-filter", blurVal, "important");
+        if (enabled) {
+          if (!el.classList.contains(className)) el.classList.add(className);
+          el.style.setProperty("background", FROSTED_BG_VALUE, "important");
+          if (blur > 0) {
+            el.style.setProperty("backdrop-filter", blurVal, "important");
+            el.style.setProperty("-webkit-backdrop-filter", blurVal, "important");
+          } else {
+            el.style.removeProperty("backdrop-filter");
+            el.style.removeProperty("-webkit-backdrop-filter");
+          }
         } else {
-          el.classList.remove("ba-frosted");
+          el.classList.remove(className);
           el.style.removeProperty("background");
           el.style.removeProperty("backdrop-filter");
           el.style.removeProperty("-webkit-backdrop-filter");
         }
       }
     }
+  };
+  const applyFrostedCards = () => {
+    applyFrostedGroup(
+      FROSTED_CARD_SELECTORS, state.settings.frostedCards,
+      state.settings.cardBlur, "ba-frosted-card",
+    );
+    applyFrostedGroup(
+      FROSTED_POPUP_SELECTORS, state.settings.popupFrosted,
+      state.settings.popupBlur, "ba-frosted-popup",
+    );
   };
   const stripBackgrounds = () => {
     for (const sel of stripSelectors) {
@@ -735,11 +771,6 @@ body .search-pinned-tabs::before {
   // ---- 吸顶表头壁纸对齐：rAF 循环每帧同步 ----
   // rAF 在每帧绘制前执行，读到的 getBoundingClientRect 是当帧最新位置，
   // 写入 CSS 变量后当帧绘制生效 → 零滞后。比 scroll 事件（绘制后派发）更早。
-  const HEADER_SELECTORS = [
-    ".song-list-sticky", ".sliver-header-root", ".explore-header",
-    ".rank-toolbar", ".new-song-toolbar", ".search-song-toolbar",
-    ".comment-main-tabs", ".search-pinned-tabs",
-  ];
   const syncHeaderBg = () => {
     if (!state.settings.wallpaperEnabled || !state.settings.frostedCards) {
       headerRafId = requestAnimationFrame(syncHeaderBg);
@@ -753,7 +784,7 @@ body .search-pinned-tabs::before {
       const drawnH = wallpaperImgH * scale;
       const bgOffsetX = (cw - drawnW) / 2;
       const bgOffsetY = (ch - drawnH) / 2;
-      for (const sel of HEADER_SELECTORS) {
+      for (const sel of FROSTED_HEADER_SELECTORS) {
         for (const el of document.querySelectorAll(sel)) {
           const rect = el.getBoundingClientRect();
           if (rect.width === 0 || rect.height === 0) continue;
@@ -801,23 +832,16 @@ const removeWallpaper = () => {
   wallpaperStyleDispose = null;
   surfaceDispose?.();
   surfaceDispose = null;
-  // Clean up frosted card effects
+  // Clean up frosted card/popup effects
   const fcSels = [
-    ".home-feature-card", ".settings-card", ".cloud-info-card", ".plugin-card",
-    ".login-panel-card", ".route-error-card", ".error-shell",
-    ".explore-header", ".rank-toolbar", ".new-song-toolbar", ".search-song-toolbar",
-    ".song-list-sticky", ".comment-main-tabs", ".sliver-header-root", ".search-pinned-tabs",
-    ".search-suggestions-panel", ".tb-suggestions",
-    ".rec-playlist-item", ".add-playlist-item", ".playlist-picker-item",
-    ".plugin-settings-section", ".plugin-management-page",
-    ".song-context-menu", ".drawer-panel", ".dialog-content",
-    ".toast-card", ".card-container",
-    ".profile-archive-card", ".radio-card", ".fm-play-sticky",
-    ".fm-panel",
+    ...FROSTED_CARD_SELECTORS,
+    ...FROSTED_POPUP_SELECTORS,
+    ...FROSTED_HEADER_SELECTORS,
   ];
   for (const sel of fcSels) {
     for (const el of document.querySelectorAll(sel)) {
-      el.classList.remove("ba-frosted");
+      el.classList.remove("ba-frosted-card");
+      el.classList.remove("ba-frosted-popup");
       el.style.removeProperty("background");
       el.style.removeProperty("backdrop-filter");
       el.style.removeProperty("-webkit-backdrop-filter");
@@ -827,9 +851,20 @@ const removeWallpaper = () => {
 
 /* ================================================================== */
 /*                                                                    */
-/*   PART 3 — Font Replacement (Blueaka)                             */
+/*   PART 3 — Font Replacement (Blueaka / 系统字体 / 自定义字体文件)   */
 /*                                                                    */
 /* ================================================================== */
+
+const FONT_STACK_SUFFIX = `"Segoe UI", "Microsoft YaHei", sans-serif`;
+
+const globalFontCssFor = (family) => `
+html, body, input, textarea, select, button,
+.echo-app, .sidebar, .main-content, .player-bar,
+.song-title, .artist-name, .lyric-line, .lyric-line *,
+.playlist-item, .search-input, .dialog-content,
+*, *::before, *::after {
+  font-family: ${family}, ${FONT_STACK_SUFFIX} !important;
+}`;
 
 const resolveFontCss = async () => {
   const dir = runtimeCtx.descriptor.directory;
@@ -887,25 +922,44 @@ const applyFont = async () => {
   fontGlobalDispose = null;
   if (!runtimeCtx || !state || !state.settings.fontEnabled) return;
 
+  const mode = state.settings.fontMode;
   try {
+    if (mode === "system") {
+      const family = state.settings.systemFontFamily;
+      if (!family || family === "follow") return;
+      const built = runtimeCtx.fonts?.buildFamily?.(family) || `"${family}"`;
+      fontGlobalDispose = runtimeCtx.css.inject(globalFontCssFor(built), { id: "ba-font-global" });
+      return;
+    }
+
+    if (mode === "custom") {
+      const fontPath = state.settings.customFontPath;
+      if (!fontPath) return;
+      const r = await runtimeCtx.fs.getFileUrl(fontPath);
+      if (!r?.ok) {
+        runtimeCtx.toast?.warning?.("自定义字体文件不可用，请重新选择");
+        return;
+      }
+      const fontFaceCss = `
+@font-face {
+  font-family: "BA Custom Font";
+  src: url("${r.url}");
+  font-display: swap;
+}`;
+      fontStyleDispose = runtimeCtx.css.inject(fontFaceCss, { id: "ba-font-face" });
+      fontGlobalDispose = runtimeCtx.css.inject(globalFontCssFor(`"BA Custom Font"`), { id: "ba-font-global" });
+      return;
+    }
+
+    // blueaka（默认）
     const fontCss = await resolveFontCss();
     if (!fontCss) return;
 
     // Inject @font-face declarations
     fontStyleDispose = runtimeCtx.css.inject(fontCss, { id: "ba-font-face" });
-
-    // Apply Blueaka font globally
-    const globalFontCss = `
-html, body, input, textarea, select, button,
-.echo-app, .sidebar, .main-content, .player-bar,
-.song-title, .artist-name, .lyric-line, .lyric-line *,
-.playlist-item, .search-input, .dialog-content,
-*, *::before, *::after {
-  font-family: "Blueaka", "Segoe UI", "Microsoft YaHei", sans-serif !important;
-}`;
-    fontGlobalDispose = runtimeCtx.css.inject(globalFontCss, { id: "ba-font-global" });
+    fontGlobalDispose = runtimeCtx.css.inject(globalFontCssFor(`"Blueaka"`), { id: "ba-font-global" });
   } catch (e) {
-    runtimeCtx.toast?.warning?.("Blueaka 字体加载失败: " + (e?.message || e));
+    runtimeCtx.toast?.warning?.("字体加载失败: " + (e?.message || e));
   }
 };
 
@@ -962,6 +1016,8 @@ const updateSettings = async (patch) => {
     state.settings.playerBlur !== prev.playerBlur ||
     state.settings.frostedCards !== prev.frostedCards ||
     state.settings.cardBlur !== prev.cardBlur ||
+    state.settings.popupFrosted !== prev.popupFrosted ||
+    state.settings.popupBlur !== prev.popupBlur ||
     state.settings.customWallpaperData !== prev.customWallpaperData;
   if (wpChanged) {
     if (state.settings.customWallpaperData !== prev.customWallpaperData) {
@@ -973,7 +1029,11 @@ const updateSettings = async (patch) => {
   }
 
   // Font changes
-  const fontChanged = state.settings.fontEnabled !== prev.fontEnabled;
+  const fontChanged =
+    state.settings.fontEnabled !== prev.fontEnabled ||
+    state.settings.fontMode !== prev.fontMode ||
+    state.settings.systemFontFamily !== prev.systemFontFamily ||
+    state.settings.customFontPath !== prev.customFontPath;
   if (fontChanged) {
     if (!state.settings.fontEnabled) removeFont();
     await applyFont();
@@ -1085,6 +1145,29 @@ const createSettingsComponent = (ctx) => {
         reader.readAsDataURL(file);
       };
       const fileInputRef = { current: null };
+
+      // 系统字体列表（仅在需要时加载一次）
+      const systemFontOptions = ref([]);
+      const loadSystemFonts = async () => {
+        if (systemFontOptions.value.length > 0) return;
+        try {
+          const options = await ctx.fonts?.getOptions?.();
+          if (Array.isArray(options)) systemFontOptions.value = options;
+        } catch {}
+      };
+      loadSystemFonts();
+
+      // 自定义字体文件选择：保存文件路径，应用时经 getFileUrl 转成可加载 URL
+      const selectCustomFontFile = async () => {
+        const result = await ctx.dialog.selectFiles({
+          title: "选择字体文件",
+          filters: [{ name: "字体文件", extensions: ["ttf", "otf", "woff", "woff2"] }],
+        });
+        const path = !result?.canceled && result?.paths?.[0];
+        if (!path) return;
+        const name = path.replace(/\\/g, "/").split("/").pop() || path;
+        await updateSettings({ customFontPath: path, customFontName: name, fontMode: "custom" });
+      };
 
       const sw = (key) =>
         h(Switch, {
@@ -1220,20 +1303,79 @@ const createSettingsComponent = (ctx) => {
             ? [field("侧边栏模糊度", "磨砂玻璃的模糊程度", sl("sidebarBlur", 0, 64, 2, "px"))]
             : []),
           field("播放器栏模糊度", "底部播放器栏磨砂玻璃模糊程度", sl("playerBlur", 0, 64, 2, "px")),
-          field("卡片磨砂效果", "各卡片、列表、工具栏等元素变为半透明磨砂玻璃", sw("frostedCards"), { sw: true }),
+          field("卡片磨砂效果", "页面内卡片、面板、吸顶工具栏等变为半透明", sw("frostedCards"), { sw: true }),
           ...(state.settings.frostedCards
-            ? [field("卡片模糊度", "磨砂卡片的背景模糊程度", sl("cardBlur", 0, 64, 2, "px"))]
+            ? [field("卡片模糊度", "0 为纯透明不模糊", sl("cardBlur", 0, 64, 2, "px"))]
+            : []),
+          field("弹窗磨砂效果", "提示弹窗、对话框、播放列表抽屉、右键菜单等变为半透明磨砂玻璃", sw("popupFrosted"), { sw: true }),
+          ...(state.settings.popupFrosted
+            ? [field("弹窗模糊度", "0 为纯透明不模糊", sl("popupBlur", 0, 64, 2, "px"))]
             : []),
         ]);
 
-      const renderFontSection = () =>
-        h("section", { class: "echo-ba-section" }, [
-          h("div", { class: "echo-ba-section-title" }, ["🔤 Blueaka 字体"]),
-          field("启用字体替换", "将全局字体替换为蔚蓝档案官方 Blueaka 字体", sw("fontEnabled"), { sw: true }),
-          h("div", { class: "echo-ba-desc", style: "padding: 0 2px;" },
-            "字体来源：kivo.wiki — 包含 Blueaka Regular (400) 和 Bold (700) 两个权重，覆盖中日韩字符集。",
-          ),
+      const renderFontSection = () => {
+        const mode = state.settings.fontMode;
+        return h("section", { class: "echo-ba-section" }, [
+          h("div", { class: "echo-ba-section-title" }, ["🔤 字体替换"]),
+          field("启用字体替换", "替换应用全局字体", sw("fontEnabled"), { sw: true }),
+          ...(state.settings.fontEnabled
+            ? [
+                field("字体来源", null,
+                  h(Select, {
+                    class: "echo-ba-host-select",
+                    modelValue: mode,
+                    options: [
+                      { label: "Blueaka（内置）", value: "blueaka" },
+                      { label: "系统字体", value: "system" },
+                      { label: "自定义字体文件", value: "custom" },
+                    ],
+                    "onUpdate:modelValue": (v) => updateSettings({ fontMode: String(v || "blueaka") }),
+                  }),
+                ),
+                ...(mode === "blueaka"
+                  ? [h("div", { class: "echo-ba-desc", style: "padding: 0 2px;" },
+                      "字体来源：kivo.wiki — 包含 Blueaka Regular (400) 和 Bold (700) 两个权重，覆盖中日韩字符集。",
+                    )]
+                  : []),
+                ...(mode === "system"
+                  ? [field("选择系统字体", "使用本机已安装的字体",
+                      h(Select, {
+                        class: "echo-ba-host-select",
+                        filterable: true,
+                        modelValue: state.settings.systemFontFamily || "",
+                        options: systemFontOptions.value,
+                        "onUpdate:modelValue": (v) => updateSettings({ systemFontFamily: String(v || "") }),
+                      }),
+                    )]
+                  : []),
+                ...(mode === "custom"
+                  ? [
+                      h("div", { style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap;" }, [
+                        h("button", {
+                          type: "button",
+                          class: "echo-ba-upload-btn",
+                          onClick: selectCustomFontFile,
+                        }, "📁 选择字体文件"),
+                        h("span", { class: "echo-ba-desc", style: "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" },
+                          state.settings.customFontName || "未选择（支持 ttf / otf / woff / woff2）",
+                        ),
+                        ...(state.settings.customFontPath
+                          ? [h("button", {
+                              type: "button",
+                              class: "echo-ba-remove-btn",
+                              onClick: () => updateSettings({ customFontPath: "", customFontName: "" }),
+                            }, "✕ 移除")]
+                          : []),
+                      ]),
+                      h("div", { class: "echo-ba-desc", style: "padding: 0 2px;" },
+                        "插件保存的是字体文件路径，移动或删除原文件后需要重新选择。",
+                      ),
+                    ]
+                  : []),
+              ]
+            : []),
         ]);
+      };
 
       const reset = () => updateSettings({ ...DEFAULT_SETTINGS });
 
