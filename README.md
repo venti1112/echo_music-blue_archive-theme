@@ -1,6 +1,6 @@
 # Venti1112 的主题包 — 蔚蓝档案 Blue Archive 主题
 
-一款为 [EchoMusic](https://github.com/echo-music/echo-music) 播放器设计的蔚蓝档案（Blue Archive）主题插件，包含点击粒子特效、角色壁纸、字体替换与毛玻璃 UI 美化。
+一款为 [EchoMusic](https://github.com/hoowhoami/EchoMusic) 播放器设计的蔚蓝档案（Blue Archive）主题插件，包含点击粒子特效、角色壁纸、字体替换与毛玻璃 UI 美化。
 
 ## 功能
 
