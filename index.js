@@ -433,8 +433,9 @@ const FROSTED_CARD_SELECTORS = [
 
 const FROSTED_POPUP_SELECTORS = [
   ".dialog-content", ".drawer-panel", ".song-context-menu", ".toast-card",
-  ".search-suggestions-panel", ".tb-suggestions",
+  ".tb-search-panel",
   ".add-playlist-item", ".playlist-picker-item",
+  ".echo-popover-content",
 ];
 
 const FROSTED_HEADER_SELECTORS = [
@@ -550,7 +551,7 @@ body::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }` + (state.settings.replaceLyricBg ? `
-.lyric-page {
+.lyric-background {
   background-image: url("${url}") !important;
   background-size: cover !important;
   background-position: center !important;
@@ -558,7 +559,7 @@ body::after {
   background-color: transparent !important;
   ${blurPx !== "none" ? `filter: ${blurPx} !important;` : ""}
 }
-.lyric-page::before {
+.lyric-background::before {
   content: "" !important;
   position: absolute !important;
   inset: 0 !important;
@@ -566,7 +567,7 @@ body::after {
   background: rgba(0,0,0,${wallpaperDim}) !important;
   pointer-events: none !important;
 }
-.lyric-page .lyric-blur-bg {
+.lyric-background .lyric-blur-bg {
   display: none !important;
 }` : '') + (state.settings.sidebarFloat ? `
 .sidebar-wrapper {
@@ -575,6 +576,9 @@ body::after {
   padding-right: 0 !important;
   margin-right: 8px !important;
   overflow: visible !important;
+}
+.sidebar-wrapper::after {
+  display: none !important;
 }
 body .sidebar {
   border-radius: 14px !important;
