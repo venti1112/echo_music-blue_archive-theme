@@ -561,7 +561,12 @@ body::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }` + (state.settings.replaceLyricBg ? `
-.lyric-background {
+/* 新版宿主(2.3.1-beta.27+)把背景独立成 .lyric-background 包裹层；
+   旧版(≤2.3.0)背景直接挂在 .lyric-page 根节点上，没有该包裹层，
+   所以旧结构用 :not(:has(.lyric-background)) 兜底，两代宿主都能替换背景。
+   .is-plugin-page 是插件歌词皮肤页，不干预。 */
+.lyric-background,
+.lyric-page:not(:has(.lyric-background)):not(.is-plugin-page) {
   background-image: url("${url}") !important;
   background-size: cover !important;
   background-position: center !important;
@@ -569,7 +574,8 @@ body::after {
   background-color: transparent !important;
   ${blurPx !== "none" ? `filter: ${blurPx} !important;` : ""}
 }
-.lyric-background::before {
+.lyric-background::before,
+.lyric-page:not(:has(.lyric-background)):not(.is-plugin-page)::before {
   content: "" !important;
   position: absolute !important;
   inset: 0 !important;
@@ -577,6 +583,7 @@ body::after {
   background: rgba(0,0,0,${wallpaperDim}) !important;
   pointer-events: none !important;
 }
+.lyric-page .lyric-blur-bg,
 .lyric-background .lyric-blur-bg {
   display: none !important;
 }` : '') + (state.settings.sidebarFloat ? `
