@@ -51,7 +51,7 @@
 
 ## 要求
 
-- EchoMusic 版本 **>= 2.2.6-beta.9**
+- EchoMusic 版本 **>= 2.3.2-beta.5**
 
 ## 配置项
 

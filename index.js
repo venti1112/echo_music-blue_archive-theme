@@ -432,10 +432,10 @@ const FROSTED_CARD_SELECTORS = [
 ];
 
 const FROSTED_POPUP_SELECTORS = [
-  ".dialog-content", ".drawer-panel", ".song-context-menu", ".toast-card",
-  ".tb-search-panel",
-  ".add-playlist-item", ".playlist-picker-item",
-  ".echo-popover-content",
+  ".dialog-content", ".drawer-panel", ".song-context-menu", ".titlebar-more-menu",
+  ".toast-card", ".tb-search-panel", ".tb-query-footer",
+  ".add-to-item",
+  ".echo-popover-content", ".echo-date-picker-content", ".app-tooltip-content",
 ];
 
 const FROSTED_HEADER_SELECTORS = [
@@ -489,6 +489,16 @@ const applyWallpaper = async () => {
   const css = `
 html {
   background: transparent !important;
+}
+/* 主程序把 --bg-* 派生色声明在 :root(html) 上，var() 在声明元素处就完成了替换，
+   插件 surface.set() 写在 body 上的 *-opacity 到不了这条链路，
+   于是 --color-bg-elevated / --control-bg 始终按不透明值参与计算，
+   定时关闭的时长/动作按钮、导入歌单链接输入框等就被渲染成纯色块。
+   html:root 特异性(0,1,1) 高于主程序的 :root 与 .dark(0,1,0)，
+   且这两个自定义属性会继承给所有后代，这里统一改为磨砂半透明。*/
+html:root {
+  --surface-elevated-opacity: 12%;
+  --control-bg: ${FROSTED_BG_VALUE};
 }
 body {
   position: relative !important;
@@ -620,6 +630,14 @@ body .fm-panel {
   background: transparent !important;
   background-color: transparent !important;
 }
+/* 新版主程序把设置页改成弹窗（.dialog-content.global-settings-dialog 内嵌 Settings.vue）后，
+   内层 .settings-page-shell.is-embedded > .settings-page 会铺一层不透明的 --surface-card-base，
+   把 .dialog-content 的磨砂背景整个盖住，所以这里一并透明化 */
+body .settings-page-shell,
+body .settings-page {
+  background: transparent !important;
+  background-color: transparent !important;
+}
 ` + (state.settings.frostedCards ? `
 ${FROSTED_CARD_SELECTORS.map((s) => `body ${s}`).join(",\n")} {
   background: ${FROSTED_BG_VALUE} !important;${state.settings.cardBlur > 0 ? `
@@ -668,6 +686,12 @@ body .search-input-wrap:focus-within {
   backdrop-filter: blur(${state.settings.popupBlur}px) !important;
   -webkit-backdrop-filter: blur(${state.settings.popupBlur}px) !important;` : ''}
 }
+/* 弹窗箭头默认填充不透明的 --floating-surface-bg/--popover-background，
+   面板透明化后会留下一块死白的三角，这里同步改成磨砂色 */
+body .echo-popover-arrow,
+body .app-tooltip-arrow {
+  fill: ${FROSTED_BG_VALUE} !important;
+}
 ` : '') + (state.settings.cardBlur > 0 ? `
 .ba-frosted-card {
   backdrop-filter: blur(${state.settings.cardBlur}px) !important;
@@ -704,6 +728,7 @@ body .search-input-wrap:focus-within {
     ".fm-play-sticky",
     ".fm-panel",
     ".sliver-header-background",
+    ".settings-page",
     ...(state.settings.sidebarFloat ? [] : [".sidebar"]),
     ...(state.settings.playerBlur > 0 ? [] : [".player-bar"]),
   ];
