@@ -500,6 +500,17 @@ html:root {
   --surface-elevated-opacity: 12%;
   --control-bg: ${FROSTED_BG_VALUE};
 }
+/* 新版主程序(2.3.2-beta.7+)把 --surface-main/sidebar/player-opacity 强制写成
+   PANEL_MATERIAL 的 50% 并 inline 到 html 上，surface.set() 传的低透明度值被覆盖，
+   --bg-main/--bg-player 派生色(含各吸顶表头 ::before 用的 --color-bg-main 切片)
+   又变回半透明白，壁纸被盖住。
+   样式表 !important 优先级高于普通 inline 声明，这里按 surface.set 的目标值
+   重新声明；旧版宿主上这些变量本来就由 surface.set 写入相同值，规则无副作用。*/
+html {
+  --surface-main-opacity: 1% !important;
+  --surface-sidebar-opacity: ${state.settings.sidebarFloat ? "30%" : "1%"} !important;
+  --surface-player-opacity: 1% !important;
+}
 body {
   position: relative !important;
   z-index: 0 !important;
@@ -527,6 +538,17 @@ body::after {
 }
 #app, .app-root, .echo-app {
   background: transparent !important;
+}
+/* 新版主程序(2.3.2-beta.7+)新增的不透明层：.theme-background-base 铺满全窗的
+   inline 壳色、.skin-main-panel/.skin-player-panel 的 var(--bg-main/player) 白底。
+   这些选择器在旧版宿主上不存在，规则自动 no-op，保持向后兼容。 */
+.theme-background-base,
+.theme-background-image,
+.theme-background-shade,
+.skin-main-panel,
+.skin-player-panel {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 .main-layout,
 .bg-bg-main,
@@ -610,13 +632,14 @@ body .player-bar {
   backdrop-filter: blur(${state.settings.playerBlur}px) !important;
   -webkit-backdrop-filter: blur(${state.settings.playerBlur}px) !important;
 }
-}` : '') + `
+` : '') + `
 body .explore-header::before,
 body .rank-toolbar::before,
 body .new-song-toolbar::before,
 body .search-song-toolbar::before,
 body .song-list-sticky::before,
-body .comment-main-tabs::before {
+body .comment-main-tabs::before,
+body .search-pinned-tabs::before {
   background: transparent !important;
   background-color: transparent !important;
 }
@@ -681,6 +704,22 @@ ${FROSTED_HEADER_SELECTORS.map((s) => `body ${s}::before`).join(",\n")} {
 }
 ` : '') + (state.settings.popupFrosted ? `
 ${FROSTED_POPUP_SELECTORS.map((s) => `body ${s}`).join(",\n")} {
+  background: ${FROSTED_BG_VALUE} !important;${state.settings.popupBlur > 0 ? `
+  backdrop-filter: blur(${state.settings.popupBlur}px) !important;
+  -webkit-backdrop-filter: blur(${state.settings.popupBlur}px) !important;` : ''}
+}
+/* 主程序 2.3.2-beta.8 引入 FloatingSurface 统一材质：真正的面板画在子元素
+   .floating-surface-fill 上（不透明的 --floating-surface-bg），宿主同时把根元素的
+   background/backdrop-filter 置空 —— 加在根元素上的磨砂样式会被不透明的 fill 盖住，
+   表现为弹窗磨砂模糊“失效”。这里把根元素恢复透明，把磨砂样式移到 fill 上。
+   旧版宿主没有 .floating-surface-unified/.floating-surface-fill，规则自动 no-op。 */
+body .floating-surface-unified {
+  background: transparent !important;
+  background-color: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+body .floating-surface-unified .floating-surface-fill {
   background: ${FROSTED_BG_VALUE} !important;${state.settings.popupBlur > 0 ? `
   backdrop-filter: blur(${state.settings.popupBlur}px) !important;
   -webkit-backdrop-filter: blur(${state.settings.popupBlur}px) !important;` : ''}
@@ -761,23 +800,38 @@ body .app-tooltip-arrow {
   // 卡片与弹窗磨砂分组应用：每组独立开关和模糊度
   const applyFrostedGroup = (selectors, enabled, blur, className) => {
     const blurVal = `blur(${blur}px)`;
+    const applyStyle = (node) => {
+      node.style.setProperty("background", FROSTED_BG_VALUE, "important");
+      if (blur > 0) {
+        node.style.setProperty("backdrop-filter", blurVal, "important");
+        node.style.setProperty("-webkit-backdrop-filter", blurVal, "important");
+      } else {
+        node.style.removeProperty("backdrop-filter");
+        node.style.removeProperty("-webkit-backdrop-filter");
+      }
+    };
+    const clearStyle = (node) => {
+      node.style.removeProperty("background");
+      node.style.removeProperty("backdrop-filter");
+      node.style.removeProperty("-webkit-backdrop-filter");
+    };
     for (const sel of selectors) {
       for (const el of document.querySelectorAll(sel)) {
         if (enabled) {
           if (!el.classList.contains(className)) el.classList.add(className);
-          el.style.setProperty("background", FROSTED_BG_VALUE, "important");
-          if (blur > 0) {
-            el.style.setProperty("backdrop-filter", blurVal, "important");
-            el.style.setProperty("-webkit-backdrop-filter", blurVal, "important");
-          } else {
-            el.style.removeProperty("backdrop-filter");
-            el.style.removeProperty("-webkit-backdrop-filter");
-          }
         } else {
           el.classList.remove(className);
-          el.style.removeProperty("background");
-          el.style.removeProperty("backdrop-filter");
-          el.style.removeProperty("-webkit-backdrop-filter");
+        }
+        // 主程序 2.3.2-beta.8+ 的 FloatingSurface 统一材质：面板画在子元素
+        // .floating-surface-fill 上，根元素只做定位层（宿主会把它的背景/模糊置空）。
+        // 此时磨砂样式交给 fill，根元素保持透明，避免双层底色叠加。
+        const fill = el.querySelector(".floating-surface-fill");
+        if (enabled) {
+          if (fill) applyStyle(fill);
+          else applyStyle(el);
+        } else {
+          clearStyle(el);
+          if (fill) clearStyle(fill);
         }
       }
     }
@@ -881,6 +935,12 @@ const removeWallpaper = () => {
       el.style.removeProperty("background");
       el.style.removeProperty("backdrop-filter");
       el.style.removeProperty("-webkit-backdrop-filter");
+      // 2.3.2-beta.8+ 统一材质的磨砂样式画在 .floating-surface-fill 上，一并清理
+      for (const fill of el.querySelectorAll(".floating-surface-fill")) {
+        fill.style.removeProperty("background");
+        fill.style.removeProperty("backdrop-filter");
+        fill.style.removeProperty("-webkit-backdrop-filter");
+      }
     }
   }
 };
